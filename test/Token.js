@@ -2,115 +2,126 @@ const { expect } = require('chai');
 const { ethers } = require('hardhat');
 
 const tokens = (n) => {
-	return ethers.utils.parseUnits(n.toString(), 'ether')
-
+  return ethers.utils.parseUnits(n.toString(), 'ether')
 }
 
 describe('Token', () => {
-	let token, accounts, deployer, reciever
-	
-	// Test go inside here...
-	beforeEach(async () => {
-		// Code goes here..
-		//Fetch Token from Blockchain
-		const Token = await ethers.getContractFactory("Token")
-		token = await Token.deploy('My Token', 'MTK', '1000000')
-		//fetch accounts
-		accounts = await ethers.getSigners()
-		deployer = accounts[0]
-		reciever = accounts[1]
-	})
+  let token, accounts, deployer, receiver, exchange
 
-	describe('Deployment', () => {
-		const name = 'My Token'
-		const symbol = 'MTK'
-		const decimals = '18'
-		const totalSupply = tokens('1000000')
-	
-		it('has correct name', async () => {
-			//Check that name is correct
-			expect(await token.name()).to.equal(name)
-		})
+  beforeEach(async () => {
+    const Token = await ethers.getContractFactory('Token')
+    token = await Token.deploy('Dapp University', 'DAPP', '1000000')
+
+    accounts = await ethers.getSigners()
+    deployer = accounts[0]
+    receiver = accounts[1]
+    exchange = accounts[2]
+  })
+
+  describe('Deployment', () => {
+    const name = 'Dapp University'
+    const symbol = 'DAPP'
+    const decimals = '18'
+    const totalSupply = tokens('1000000')
+
+    it('has correct name', async () => {
+      expect(await token.name()).to.equal(name)
+    })
+
+    it('has correct symbol', async () => {
+      expect(await token.symbol()).to.equal(symbol)
+    })
+
+    it('has correct decimals', async () => {
+      expect(await token.decimals()).to.equal(decimals)
+    })
+
+    it('has correct total supply', async () => {
+      expect(await token.totalSupply()).to.equal(totalSupply)
+    })
+
+    it('assigns total supply to deployer', async () => {
+      expect(await token.balanceOf(deployer.address)).to.equal(totalSupply)
+    })
+
+  })
 
 
-		it('has correct symbol', async () => {
-			// Read token name 
-			//Check that name is correct
-			expect(await token.symbol()).to.equal(symbol)
-		})
+  describe('Sending Tokens', () => {
+    let amount, transaction, result
 
-		it('has correct decimals', async () => {
-			// Read token name 
-			//Check that name is correct
-			expect(await token.decimals()).to.equal(decimals)
-		
-		})
+    describe('Success', () => {
 
-		it('has correct total supply', async () => {
-			// Read token name 
+      beforeEach(async () => {
+        amount = tokens(100)
+        transaction = await token.connect(deployer).transfer(receiver.address, amount)
+        result = await transaction.wait()
+      })
 
-			expect(await token.totalSupply()).to.equal(totalSupply)
+      it('transfers token balances', async () => {
+        expect(await token.balanceOf(deployer.address)).to.equal(tokens(999900))
+        expect(await token.balanceOf(receiver.address)).to.equal(amount)
+      })
 
-		})
+      it('emits a Transfer event', async () => {
+        const event = result.events[0]
+        expect(event.event).to.equal('Transfer')
 
-		it('assigns total supply to deployer', async () => {
-	
-			expect(await token.balanceOf(deployer.address)).to.equal(totalSupply)
+        const args = event.args
+        expect(args.from).to.equal(deployer.address)
+        expect(args.to).to.equal(receiver.address)
+        expect(args.value).to.equal(amount)
+      })
 
-		
-		})
-	})
+    })
 
-	
-	describe('Sending Token', () => {
-		let amount, transaction, result
+    describe('Failure', () => {
+      it('rejects insufficient balances', async () => {
+        const invalidAmount = tokens(100000000)
+        await expect(token.connect(deployer).transfer(receiver.address, invalidAmount)).to.be.reverted
+      })
 
-		describe('Success', () => {
+      it('rejects invalid recipent', async () => {
+        const amount = tokens(100)
+        await expect(token.connect(deployer).transfer('0x0000000000000000000000000000000000000000', amount)).to.be.reverted
+      })
 
-			beforeEach(async () => {
-				
-				amount = tokens(100)
-				transaction = await token.connect(deployer).transfer(reciever.address, amount)
-				result = await transaction.wait()
-			})
-			
-			it('Transfers token balances', async () => {
-				//Transfer Tokens
-				
+    })
 
-				//ensure that tokens were transfered (balance changed)
-				expect(await token.balanceOf(deployer.address)).to.equal(tokens(999900))
-				expect(await token.balanceOf(reciever.address)).to.equal(amount)
+  })
 
-					
-			})
+  describe('Approving Tokens', () => {
+    let amount, transaction, result
 
-			it('Emits a Transfer event', async () => {
-				const event = result.events[0]
-				expect(event.event).to.equal("Transfer")
+    beforeEach(async () => {
+      amount = tokens(100)
+      transaction = await token.connect(deployer).approve(exchange.address, amount)
+      result = await transaction.wait()
+    })
 
-				const args = event.args
-				expect(args.from).to.equal(deployer.address)
-				expect(args.to).to.equal(reciever.address)
-				expect(args.value).to.equal(amount)
-			})
-		
+    describe('Success', () => {
+      it('allocates an allowance for delegated token spending', async () => {
+        expect(await token.allowance(deployer.address, exchange.address)).to.equal(amount)
+      })
 
-		})
+      it('emits an Approval event', async () => {
+        const event = result.events[0]
+        expect(event.event).to.equal('Approval')
 
-		describe('Failure', () => {
-			it('rejects insufficient balances', async () => {
-				// transfer more tokens the deployer has
-				const invalidAmount = tokens(100000000)
-				await expect(token.connect(deployer).transfer(reciever.address, invalidAmount)).to.be.reverted
-			})
-			it('Rejects invalid recipent', async () => {
-				const amount = tokens(100)
-				await expect(token.connect(deployer).transfer('0x0000000000000000000000000000000000000000', amount)).to.be.reverted
-			})
-		})
+        const args = event.args
+        expect(args.owner).to.equal(deployer.address)
+        expect(args.spender).to.equal(exchange.address)
+        expect(args.value).to.equal(amount)
+      })
 
-	})
+    })
+
+    describe('Failure', () => {
+      it('rejects invalid spenders', async () => {
+        await expect(token.connect(deployer).approve('0x0000000000000000000000000000000000000000', amount)).to.be.reverted
+      }) 
+    })
+
+  })
+
 })
-
-
